@@ -29,7 +29,7 @@
             </div>
             <div>
                 <h1 class="text-base font-bold tracking-tight">덕질 지도 아카이브</h1>
-                <p class="text-xs text-slate-400">공식 굿즈샵 & 피규어 전문점 탐색기</p>
+                <p class="text-xs text-slate-400">지역별 굿즈샵 & 피규어 전문점 탐색기</p>
             </div>
         </div>
         <div id="status-message" class="text-xs bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-full text-slate-300 flex items-center gap-1.5 shadow-inner">
@@ -41,7 +41,7 @@
     <!-- 메인 컨테이너 (2분할 레이아웃) -->
     <main class="flex-1 flex flex-col md:flex-row overflow-hidden">
         
-        <!-- 왼쪽: 탭 메뉴, 검색창 및 결과 리스트 영역 -->
+        <!-- 왼쪽: 탭 메뉴, 지역 검색창 및 결과 리스트 영역 -->
         <section class="w-full md:w-[420px] bg-white border-r border-slate-200 flex flex-col z-10 shadow-xl">
             
             <!-- 탭 버튼 영역 -->
@@ -62,24 +62,24 @@
                 </button>
             </div>
 
-            <!-- 직접 검색 입력폼 -->
+            <!-- 지역 검색 입력폼 -->
             <div class="p-4 border-b border-slate-100 bg-white">
                 <form id="search-form" class="flex gap-2">
                     <div class="relative flex-1">
                         <input 
                             type="text" 
                             id="search-input" 
-                            placeholder="매장 이름 직접 검색 (예: 애니메이트)" 
+                            placeholder="지역 검색 (예: 홍대, 국제전자센터, 부산 서면)" 
                             class="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 text-xs transition"
                             required
                         >
-                        <span class="absolute left-3 top-3 text-slate-400 text-xs">🔍</span>
+                        <span class="absolute left-3 top-3 text-slate-400 text-xs">📍</span>
                     </div>
                     <button 
                         type="submit" 
                         class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition shadow-sm"
                     >
-                        검색
+                        지역검색
                     </button>
                 </form>
             </div>
@@ -110,10 +110,11 @@
         // 전역 변수 설정
         let map = null;
         let ps = null;
+        let geocoder = null;
         let infowindow = null;
         let markers = [];
-        let currentLat = 37.566826; // 기본 위치: 서울 시청 위도
-        let currentLng = 126.978656; // 기본 위치: 서울 시청 경도
+        let currentLat = 37.566826; // 현재 기준 위도 (기본: 서울 시청)
+        let currentLng = 126.978656; // 현재 기준 경도 (기본: 서울 시청)
         let currentCategory = 'figure'; // 현재 선택된 탭 ('figure' 또는 'goods')
 
         // 카카오맵 SDK 로드 완료 후 실행
@@ -128,19 +129,19 @@
                         currentLng = position.coords.longitude;
                         statusMessage.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span>현재 위치 탐색 완료`;
                         initMap(currentLat, currentLng);
-                        searchByCategory('피규어샵', 'tab-figure'); // 초기 실행 시 피규어 전문샵 검색
+                        searchShopsByLocation(currentLat, currentLng, '피규어샵'); // 초기 실행 시 현재 위치 주변 검색
                     },
                     function(error) {
                         console.warn("위치 권한 거부됨. 기본 위치(서울 시청)로 설정합니다.", error);
                         statusMessage.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span>위치 미허용 (서울시청 기준)`;
                         initMap(currentLat, currentLng);
-                        searchByCategory('피규어샵', 'tab-figure');
+                        searchShopsByLocation(currentLat, currentLng, '피규어샵');
                     }
                 );
             } else {
                 statusMessage.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-400"></span>위치 미지원 브라우저`;
                 initMap(currentLat, currentLng);
-                searchByCategory('피규어샵', 'tab-figure');
+                searchShopsByLocation(currentLat, currentLng, '피규어샵');
             }
         });
 
@@ -155,17 +156,18 @@
             // 지도 생성
             map = new kakao.maps.Map(container, options);
 
-            // 장소 검색 객체 생성 (현재 지도 객체 기준)
-            ps = new kakao.maps.services.Places(map);
+            // 장소 검색 객체 및 주소-좌표 변환 객체 생성
+            ps = new kakao.maps.services.Places();
+            geocoder = new kakao.maps.services.Geocoder();
 
             // 인포윈도우 생성 (마커 클릭 시 상세 정보 팝업용)
             infowindow = new kakao.maps.InfoWindow({ zIndex: 1 });
 
-            // 직접 검색 폼 제출 이벤트 리스너 연결
+            // 지역 검색 폼 제출 이벤트 리스너 연결
             const searchForm = document.getElementById('search-form');
             searchForm.addEventListener('submit', function(e) {
                 e.preventDefault();
-                executeCustomSearch();
+                executeRegionSearch();
             });
         }
 
@@ -177,63 +179,82 @@
             const btnGoods = document.getElementById('tab-goods');
             const searchInput = document.getElementById('search-input');
 
-            // 탭 UI 스타일 변경 및 정확한 전문샵 키워드 검색 수행
+            // 탭 UI 스타일 변경 및 현재 중심 좌표 기준으로 다시 검색 수행
             if (categoryType === 'figure') {
                 btnFigure.className = "flex-1 py-2.5 px-4 text-xs font-bold rounded-xl bg-slate-900 text-white shadow-sm transition-all flex items-center justify-center gap-1.5";
                 btnGoods.className = "flex-1 py-2.5 px-4 text-xs font-semibold rounded-xl text-slate-600 hover:bg-slate-200/60 transition-all flex items-center justify-center gap-1.5";
                 searchInput.value = '';
-                searchByCategory('피규어샵', 'tab-figure');
+                searchShopsByLocation(currentLat, currentLng, '피규어샵');
             } else {
                 btnGoods.className = "flex-1 py-2.5 px-4 text-xs font-bold rounded-xl bg-slate-700 text-white shadow-sm transition-all flex items-center justify-center gap-1.5";
                 btnFigure.className = "flex-1 py-2.5 px-4 text-xs font-semibold rounded-xl text-slate-600 hover:bg-slate-200/60 transition-all flex items-center justify-center gap-1.5";
                 searchInput.value = '';
-                searchByCategory('애니메이션 굿즈샵', 'tab-goods');
+                searchShopsByLocation(currentLat, currentLng, '애니메이션 굿즈샵');
             }
         }
 
-        // 키워드 검색 수행 함수 (미술 교습소 등 불필요한 업종 필터링 포함)
-        function searchByCategory(keyword, tabId) {
-            removeMarkers();
-            document.getElementById('place-list').innerHTML = `
-                <div class="p-12 text-center text-slate-400 text-xs">
-                    <div class="inline-block w-6 h-6 border-2 border-slate-800 border-t-transparent rounded-full animate-spin mb-2"></div>
-                    <p>주변 전문샵을 검색하는 중입니다...</p>
-                </div>`;
+        // 사용자가 입력한 지역명을 좌표로 변환한 뒤 주변 샵 검색
+        function executeRegionSearch() {
+            const regionInput = document.getElementById('search-input').value.trim();
 
-            const searchCenter = new kakao.maps.LatLng(currentLat, currentLng);
-            const searchOptions = {
-                location: searchCenter,
-                radius: 10000, // 반경 10km 내 탐색
-                sort: kakao.maps.services.SortBy.DISTANCE
-            };
-
-            ps.keywordSearch(keyword, function(data, status, pagination) {
-                handleFilteredSearch(data, status, pagination);
-            }, searchOptions);
-        }
-
-        // 상단 검색창을 통한 직접 검색 함수
-        function executeCustomSearch() {
-            const keywordInput = document.getElementById('search-input');
-            const keyword = keywordInput.value.trim();
-
-            if (!keyword) {
-                alert('검색어를 입력해주세요!');
+            if (!regionInput) {
+                alert('검색할 지역을 입력해주세요!');
                 return;
             }
 
-            removeMarkers();
             document.getElementById('place-list').innerHTML = `
                 <div class="p-12 text-center text-slate-400 text-xs">
                     <div class="inline-block w-6 h-6 border-2 border-slate-800 border-t-transparent rounded-full animate-spin mb-2"></div>
-                    <p>장소를 검색하는 중입니다...</p>
+                    <p>지역을 찾는 중입니다...</p>
                 </div>`;
 
-            const searchCenter = new kakao.maps.LatLng(currentLat, currentLng);
+            // 주소-좌표 변환 라이브러리를 통해 지역명(예: 홍대)의 좌표 검색
+            geocoder.addressSearch(regionInput, function(result, status) {
+                if (status === kakao.maps.services.Status.OK) {
+                    // 주소 검색 결과가 있는 경우
+                    currentLat = result[0].y;
+                    currentLng = result[0].x;
+                    
+                    const moveLatLng = new kakao.maps.LatLng(currentLat, currentLng);
+                    map.setCenter(moveLatLng);
+                    map.setLevel(5); // 요구 조건: 지도 확대 레벨 5
+
+                    const keyword = currentCategory === 'figure' ? '피규어샵' : '애니메이션 굿즈샵';
+                    searchShopsByLocation(currentLat, currentLng, keyword);
+                } else {
+                    // 주소로 안 잡히면 키워드 장소 검색으로 지역 좌표 추출 시도
+                    ps.keywordSearch(regionInput, function(data, status) {
+                        if (status === kakao.maps.services.Status.OK) {
+                            currentLat = data[0].y;
+                            currentLng = data[0].x;
+
+                            const moveLatLng = new kakao.maps.LatLng(currentLat, currentLng);
+                            map.setCenter(moveLatLng);
+                            map.setLevel(5);
+
+                            const keyword = currentCategory === 'figure' ? '피규어샵' : '애니메이션 굿즈샵';
+                            searchShopsByLocation(currentLat, currentLng, keyword);
+                        } else {
+                            alert('해당 지역을 찾을 수 없습니다. 올바른 지역명을 입력해 주세요.');
+                            document.getElementById('place-list').innerHTML = `
+                                <div class="p-12 text-center text-slate-400 text-xs">
+                                    검색 결과가 없습니다.
+                                </div>`;
+                        }
+                    });
+                }
+            });
+        }
+
+        // 특정 좌표(위도, 경도) 주변의 샵 검색 함수
+        function searchShopsByLocation(lat, lng, keyword) {
+            removeMarkers();
+
+            const searchCenter = new kakao.maps.LatLng(lat, lng);
             const searchOptions = {
                 location: searchCenter,
-                radius: 20000,
-                sort: kakao.maps.services.SortBy.DISTANCE
+                radius: 4000, // 반경 4km 이내 탐색
+                sort: kakao.maps.services.SortBy.DISTANCE // 가까운 순 정렬
             };
 
             ps.keywordSearch(keyword, function(data, status, pagination) {
@@ -275,7 +296,7 @@
             document.getElementById('place-list').innerHTML = `
                 <div class="p-12 text-center text-slate-400 text-xs">
                     <p class="text-lg mb-1">🔍</p>
-                    주변에 해당 전문샵이 없습니다.<br>직접 매장 이름(예: 애니메이트)을 검색해 보세요!
+                    해당 지역 근처에 전문샵이 없습니다.<br>다른 지역을 검색해 보세요!
                 </div>`;
             removeMarkers();
         }
@@ -314,84 +335,4 @@
             map.setBounds(bounds);
         }
 
-        // 리스트 아이템 HTML 요소 생성 함수
-        function getListItem(index, place) {
-            const el = document.createElement('div');
-            el.className = 'p-4 hover:bg-slate-50 cursor-pointer transition-all border-b border-slate-100 group';
-            
-            let html = `
-                <div class="flex items-start justify-between gap-2">
-                    <h5 class="font-bold text-slate-800 text-xs group-hover:text-slate-900 transition">${place.place_name}</h5>
-                    <span class="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-medium">전문샵</span>
-                </div>
-            `;
-
-            if (place.road_address_name) {
-                html += `<p class="text-[11px] text-slate-600 mt-1">도로명: ${place.road_address_name}</p>`;
-            }
-            html += `<p class="text-[11px] text-slate-400 mt-0.5">지번: ${place.address_name}</p>`;
-            
-            if (place.phone) {
-                html += `<p class="text-[11px] text-slate-700 mt-1 font-medium flex items-center gap-1"><span>📞</span> ${place.phone}</p>`;
-            }
-
-            el.innerHTML = html;
-            return el;
-        }
-
-        // 숫자가 없는 깔끔한 커스텀 단색 원형 마커 생성 함수
-        function addCustomMarker(position, category) {
-            // 피규어샵 탭은 진한 남색(#0f172a), 굿즈샵 탭은 차콜 회색(#334155) 마커 생성
-            const bgColor = category === 'figure' ? '#0f172a' : '#334155';
-            
-            const markerContent = document.createElement('div');
-            markerContent.innerHTML = `
-                <div style="
-                    width: 16px;
-                    height: 16px;
-                    background-color: ${bgColor};
-                    border: 3px solid #ffffff;
-                    border-radius: 50%;
-                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
-                    cursor: pointer;
-                    transition: transform 0.2s;
-                "></div>
-            `;
-
-            const customOverlay = new kakao.maps.CustomOverlay({
-                position: position,
-                content: markerContent,
-                yAnchor: 0.5,
-                xAnchor: 0.5
-            });
-
-            customOverlay.setMap(map);
-            markers.push(customOverlay);
-
-            return customOverlay;
-        }
-
-        // 기존 마커들을 지도에서 모두 제거하는 함수
-        function removeMarkers() {
-            for (let i = 0; i < markers.length; i++) {
-                markers[i].setMap(null);
-            }
-            markers = [];
-        }
-
-        // 마커 클릭 시 장소 이름과 주소를 인포윈도우로 표시하는 함수
-        function displayInfowindow(marker, place) {
-            const addressText = place.road_address_name ? place.road_address_name : place.address_name;
-            const content = `
-                <div style="padding:12px;font-size:12px;line-height:1.5;min-width:180px;font-family:'Noto Sans KR',sans-serif;">
-                    <span style="font-weight:bold;color:#0f172a;display:block;margin-bottom:4px;font-size:13px;">📍 ${place.place_name}</span>
-                    <span style="color:#475569;display:block;font-size:11px;">🏠 ${addressText}</span>
-                    ${place.phone ? `<span style="color:#334155;display:block;margin-top:4px;font-size:11px;font-weight:500;">📞 ${place.phone}</span>` : ''}
-                </div>`;
-            
-            infowindow.setContent(content);
-            infowindow.open(map, marker);
-        }
-    </script>
-</body>
-</html>
+        // 리스트 아이템 HTML 요소
