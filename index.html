@@ -139,7 +139,7 @@
             });
 
             // 실행 시 기본적으로 서울 시청 주변 피규어샵 검색 수행
-            searchShops(lastLat, lastLng, '피규어샵');
+            searchShops(lastLat, lastLng, currentCategory);
         });
 
         // 탭 변경 처리 함수
@@ -152,12 +152,12 @@
             if (categoryType === 'figure') {
                 btnFigure.className = "flex-1 py-2.5 px-4 text-xs font-bold rounded-xl bg-slate-900 text-white shadow-sm transition-all flex items-center justify-center gap-1.5";
                 btnGoods.className = "flex-1 py-2.5 px-4 text-xs font-semibold rounded-xl text-slate-600 hover:bg-slate-200/60 transition-all flex items-center justify-center gap-1.5";
-                searchShops(lastLat, lastLng, '피규어샵');
             } else {
                 btnGoods.className = "flex-1 py-2.5 px-4 text-xs font-bold rounded-xl bg-slate-700 text-white shadow-sm transition-all flex items-center justify-center gap-1.5";
                 btnFigure.className = "flex-1 py-2.5 px-4 text-xs font-semibold rounded-xl text-slate-600 hover:bg-slate-200/60 transition-all flex items-center justify-center gap-1.5";
-                searchShops(lastLat, lastLng, '애니메이션 굿즈샵');
             }
+
+            searchShops(lastLat, lastLng, currentCategory);
         }
 
         // 사용자가 입력한 지역명을 검색하는 함수
@@ -200,41 +200,63 @@
             map.setCenter(moveLatLon);
             map.setLevel(5); // 요구 조건: 지도 확대 레벨 5
 
-            const shopKeyword = currentCategory === 'figure' ? '피규어샵' : '애니메이션 굿즈샵';
-            searchShops(lat, lng, shopKeyword);
+            searchShops(lat, lng, currentCategory);
         }
 
-        // 특정 좌표 기준 주변 샵 검색 실행
-        function searchShops(lat, lng, keyword) {
+        // 특정 좌표 기준 주변 샵 검색 실행 (검색 누락 방지를 위해 키워드 확장 및 반경 확대)
+        function searchShops(lat, lng, category) {
             removeMarkers();
+
+            // 탭에 따라 검색할 키워드 배열 설정 (매장명이 다양하게 등록되어 있으므로 여러 개 검색)
+            const keywords = category === 'figure' 
+                ? ['피규어', '피규어샵', '캐릭터샵'] 
+                : ['애니메이션 굿즈', '굿즈샵', '애니메이트', '캐릭터굿즈'];
 
             const searchCenter = new kakao.maps.LatLng(lat, lng);
             const searchOptions = {
                 location: searchCenter,
-                radius: 5000, // 5km 반경
-                sort: kakao.maps.services.SortBy.DISTANCE // 가까운 순
+                radius: 10000, // 반경을 10km로 넉넉하게 확장
+                sort: kakao.maps.services.SortBy.DISTANCE
             };
 
-            ps.keywordSearch(keyword, function(data, status) {
-                if (status === kakao.maps.services.Status.OK) {
-                    // 미술학원, 교습소 등 제외 필터링
-                    const filteredData = data.filter(place => {
-                        const name = place.place_name;
-                        const category = place.category_name || '';
-                        const exclude = ['교습소', '학원', '미술', '입시', '교육', '어학'];
-                        return !exclude.some(ex => name.includes(ex) || category.includes(ex));
-                    });
+            let allPlaces = [];
+            let completedRequests = 0;
 
-                    if (filteredData.length > 0) {
-                        document.getElementById('result-count').textContent = `탐색 결과 (${filteredData.length}개)`;
-                        displayPlaces(filteredData);
-                    } else {
-                        showNoResult();
+            // 키워드 여러 개로 동시 검색 후 결과 합치기
+            keywords.forEach(keyword => {
+                ps.keywordSearch(keyword, function(data, status) {
+                    completedRequests++;
+                    if (status === kakao.maps.services.Status.OK) {
+                        allPlaces = allPlaces.concat(data);
                     }
-                } else {
-                    showNoResult();
-                }
-            }, searchOptions);
+
+                    // 모든 키워드 검색이 끝났을 때 처리
+                    if (completedRequests === keywords.length) {
+                        processSearchResults(allPlaces);
+                    }
+                }, searchOptions);
+            });
+        }
+
+        // 검색 결과 중복 제거 및 필터링 처리
+        function processSearchResults(places) {
+            // ID 기준 중복 제거
+            const uniquePlaces = Array.from(new Map(places.map(item => [item.id, item])).values());
+
+            // 미술학원, 교습소 등 불필요한 장소 필터링
+            const filteredData = uniquePlaces.filter(place => {
+                const name = place.place_name;
+                const category = place.category_name || '';
+                const exclude = ['교습소', '학원', '미술', '입시', '교육', '어학', '골프', '네일'];
+                return !exclude.some(ex => name.includes(ex) || category.includes(ex));
+            });
+
+            if (filteredData.length > 0) {
+                document.getElementById('result-count').textContent = `탐색 결과 (${filteredData.length}개)`;
+                displayPlaces(filteredData);
+            } else {
+                showNoResult();
+            }
         }
 
         // 검색 결과 없을 때
@@ -256,7 +278,7 @@
 
             const bounds = new kakao.maps.LatLngBounds();
 
-            places.forEach((place, index) => {
+            places.forEach((place) => {
                 const placePosition = new kakao.maps.LatLng(place.y, place.x);
                 const marker = addCustomMarker(placePosition, currentCategory);
                 const itemEl = getListItem(place);
