@@ -29,7 +29,7 @@
             </div>
             <div>
                 <h1 class="text-base font-bold tracking-tight">덕질 지도 아카이브</h1>
-                <p class="text-xs text-slate-400">지역별 굿즈샵 & 피규어 전문점 탐색기</p>
+                <p class="text-xs text-slate-400">지역별 서브컬처 굿즈 & 피규어 전문점 탐색기</p>
             </div>
         </div>
         <div class="text-xs bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-full text-slate-300 flex items-center gap-1.5 shadow-inner">
@@ -203,11 +203,10 @@
             searchShops(lat, lng, currentCategory);
         }
 
-        // 특정 좌표 기준 주변 샵 검색 실행 (검색 누락 방지를 위해 키워드 확장 및 반경 확대)
+        // 특정 좌표 기준 주변 샵 검색 실행
         function searchShops(lat, lng, category) {
             removeMarkers();
 
-            // 탭에 따라 검색할 키워드 배열 설정 (매장명이 다양하게 등록되어 있으므로 여러 개 검색)
             const keywords = category === 'figure' 
                 ? ['피규어', '피규어샵', '캐릭터샵'] 
                 : ['애니메이션 굿즈', '굿즈샵', '애니메이트', '캐릭터굿즈'];
@@ -215,14 +214,13 @@
             const searchCenter = new kakao.maps.LatLng(lat, lng);
             const searchOptions = {
                 location: searchCenter,
-                radius: 10000, // 반경을 10km로 넉넉하게 확장
+                radius: 10000,
                 sort: kakao.maps.services.SortBy.DISTANCE
             };
 
             let allPlaces = [];
             let completedRequests = 0;
 
-            // 키워드 여러 개로 동시 검색 후 결과 합치기
             keywords.forEach(keyword => {
                 ps.keywordSearch(keyword, function(data, status) {
                     completedRequests++;
@@ -230,7 +228,6 @@
                         allPlaces = allPlaces.concat(data);
                     }
 
-                    // 모든 키워드 검색이 끝났을 때 처리
                     if (completedRequests === keywords.length) {
                         processSearchResults(allPlaces);
                     }
@@ -238,16 +235,21 @@
             });
         }
 
-        // 검색 결과 중복 제거 및 필터링 처리
+        // 검색 결과 중복 제거 및 불필요한 업종(카카오, 라인, 앤틱, 학원 등) 강력 필터링
         function processSearchResults(places) {
-            // ID 기준 중복 제거
             const uniquePlaces = Array.from(new Map(places.map(item => [item.id, item])).values());
 
-            // 미술학원, 교습소 등 불필요한 장소 필터링
             const filteredData = uniquePlaces.filter(place => {
                 const name = place.place_name;
                 const category = place.category_name || '';
-                const exclude = ['교습소', '학원', '미술', '입시', '교육', '어학', '골프', '네일'];
+                
+                // 대기업 캐릭터 브랜드, 일반 소품샵, 교습소 등 강력 제외 키워드 목록
+                const exclude = [
+                    '교습소', '학원', '미술', '입시', '교육', '어학', 
+                    '골프', '네일', '앤틱', '골동품', '가구', '인테리어',
+                    '카카오', '라인프렌즈', '프렌즈샵', '소품샵', '팬시'
+                ];
+                
                 return !exclude.some(ex => name.includes(ex) || category.includes(ex));
             });
 
@@ -285,7 +287,6 @@
 
                 bounds.extend(placePosition);
 
-                // 마커 및 리스트 클릭 이벤트
                 kakao.maps.event.addListener(marker, 'click', function() {
                     displayInfowindow(marker, place);
                 });
