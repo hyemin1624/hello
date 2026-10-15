@@ -114,8 +114,8 @@
         let infowindow = null;
         let markers = [];
         let currentCategory = 'figure'; // 현재 선택된 탭 ('figure' 또는 'goods')
-        let lastLat = 37.566826; // 마지막으로 검색한 중심 위도 (기본: 서울 시청)
-        let lastLng = 126.978656; // 마지막으로 검색한 중심 경도 (기본: 서울 시청)
+        let lastLat = 37.566826; // 마지막 중심 위도 (기본: 서울 시청)
+        let lastLng = 126.978656; // 마지막 중심 경도 (기본: 서울 시청)
 
         // 카카오맵 SDK 로드 완료 후 실행
         kakao.maps.load(function() {
@@ -178,7 +178,7 @@
                     lastLng = result[0].x;
                     moveAndSearch(lastLat, lastLng);
                 } else {
-                    // 주소 검색 안 되면 키워드로 장소 검색 시도 (예: '홍대입구역')
+                    // 주소 검색 안 되면 키워드로 장소 검색 시도
                     ps.keywordSearch(keyword, function(data, status) {
                         if (status === kakao.maps.services.Status.OK) {
                             lastLat = data[0].y;
